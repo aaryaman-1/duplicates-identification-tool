@@ -1,54 +1,60 @@
 import streamlit as st
+import pandas as pd
 import io
-import sys
+from contextlib import redirect_stdout
 
+# Import backend functions (NO LOGIC CHANGES)
 from backend_logic import (
-    find_duplicates_one_to_many,
     load_excel_master_dataframe,
-    extract_filtered_excel_inputs
+    extract_filtered_excel_inputs,
+    find_duplicates_one_to_many
 )
 
 st.set_page_config(
     page_title="Duplicates Identification Tool",
-    layout="wide"
+    layout="centered"
 )
 
 st.title("Duplicates Identification Tool")
 
-st.markdown("---")
 
-# -----------------------------------------------------------
+# ---------------------------------------------------
+# CACHE EXCEL LOADER (Load once per day)
+# ---------------------------------------------------
+@st.cache_data(ttl=86400)
+def cached_load_excel(uploaded_file):
+    return load_excel_master_dataframe(uploaded_file)
+
+
+# ---------------------------------------------------
 # MODE SELECTION
-# -----------------------------------------------------------
-
+# ---------------------------------------------------
 mode = st.radio(
-    "Choose Input Method",
+    "Select Input Method",
     [
         "Manual User Input",
-        "Excel File Extraction"
+        "Excel Extraction Input"
     ]
 )
 
-st.markdown("---")
 
-# ===========================================================
+# ===================================================
 # MANUAL INPUT MODE
-# ===========================================================
-
+# ===================================================
 if mode == "Manual User Input":
 
-    st.subheader("Manual User Input")
+    st.subheader("Manual Input Mode")
 
     col1, col2 = st.columns(2)
 
     with col1:
         new_product_number = st.text_input(
-            "New Product Number (e.g 9808812280)"
+            "New Product Number"
         )
 
     with col2:
         new_ecdv = st.text_input(
-            "New Part ECDV (e.g EN.1GUO.XD03.DC02/XD03.DC03/DC02*)"
+            "New Product ECDV"
         )
 
     st.markdown("### Existing Parts")
@@ -57,20 +63,22 @@ if mode == "Manual User Input":
 
     with col3:
         existing_products_text = st.text_area(
-            "Existing Product Numbers\n(One per line)",
+            "Existing Product Numbers (one per line)",
             height=200
         )
 
     with col4:
-        existing_ecdv_text = st.text_area(
-            "Existing Part ECDVs\n(One per line)",
+        existing_ecdvs_text = st.text_area(
+            "Existing Product ECDVs (one per line)",
             height=200
         )
 
     st.info(
-        "Note:\n"
-        "- Ensure NFC date filtering is done manually.\n"
-        "- Ensure all parts belong to same code function."
+        """
+Manual Mode Notes:
+- Date filtering must be done manually.
+- Only paste parts belonging to the same code function.
+"""
     )
 
     if st.button("Check Duplicate"):
@@ -83,68 +91,64 @@ if mode == "Manual User Input":
 
         other_ecdvs = [
             x.strip()
-            for x in existing_ecdv_text.split("\n")
+            for x in existing_ecdvs_text.split("\n")
             if x.strip()
         ]
 
         buffer = io.StringIO()
-        sys.stdout = buffer
 
-        try:
+        with redirect_stdout(buffer):
+
             find_duplicates_one_to_many(
                 new_ecdv,
                 other_ecdvs,
                 new_product_number,
                 other_product_numbers
             )
-            output = buffer.getvalue()
 
-        except Exception as e:
-            output = str(e)
-
-        finally:
-            sys.stdout = sys.__stdout__
+        output = buffer.getvalue()
 
         st.markdown("### Output")
 
-        st.code(output, language="text")
+        st.code(output)
 
 
-# ===========================================================
+
+# ===================================================
 # EXCEL INPUT MODE
-# ===========================================================
+# ===================================================
+elif mode == "Excel Extraction Input":
 
-if mode == "Excel File Extraction":
+    st.subheader("Excel Extraction Mode")
 
-    st.subheader("Excel File Extraction Input")
+    new_product_number = st.text_input(
+        "New Product Number"
+    )
 
-    col1, col2 = st.columns(2)
+    new_ecdv = st.text_input(
+        "New Product ECDV"
+    )
 
-    with col1:
-        new_product_number = st.text_input("New Product Number")
+    code_function = st.text_input(
+        "Code Function"
+    )
 
-    with col2:
-        new_ecdv = st.text_input("New Part ECDV")
+    new_product_NFCdate = st.text_input(
+        "New Product NFC Date (YYYY-MM-DD)"
+    )
 
-    col3, col4 = st.columns(2)
-
-    with col3:
-        code_function = st.text_input("Code Function (e.g E1101001)")
-
-    with col4:
-        new_product_NFCdate = st.text_input(
-            "New Product NFC Date (YYYY-MM-DD)"
-        )
-
-    file_path = st.text_input("Excel File Path")
+    uploaded_file = st.file_uploader(
+        "Upload MBOM Excel File",
+        type=["xlsx"]
+    )
 
     if st.button("Check Duplicate"):
 
-        buffer = io.StringIO()
-        sys.stdout = buffer
+        if uploaded_file is None:
+            st.error("Please upload Excel file.")
+        else:
 
-        try:
-            df_master = load_excel_master_dataframe(file_path)
+            df_master = cached_load_excel(uploaded_file)
 
             other_product_numbers, other_ecdvs = extract_filtered_excel_inputs(
                 df_master=df_master,
@@ -152,21 +156,19 @@ if mode == "Excel File Extraction":
                 new_product_NFCdate=new_product_NFCdate
             )
 
-            find_duplicates_one_to_many(
-                new_ecdv,
-                other_ecdvs,
-                new_product_number,
-                other_product_numbers
-            )
+            buffer = io.StringIO()
+
+            with redirect_stdout(buffer):
+
+                find_duplicates_one_to_many(
+                    new_ecdv,
+                    other_ecdvs,
+                    new_product_number,
+                    other_product_numbers
+                )
 
             output = buffer.getvalue()
 
-        except Exception as e:
-            output = str(e)
+            st.markdown("### Output")
 
-        finally:
-            sys.stdout = sys.__stdout__
-
-        st.markdown("### Output")
-
-        st.code(output, language="text")
+            st.code(output)
