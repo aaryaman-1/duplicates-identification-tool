@@ -337,7 +337,7 @@ def load_excel_master_dataframe(file_path):
     # Treat NaT end-dates as open-ended validity
     # ---------------------------------------------------
 
-    OPEN_END_DATE = pd.Timestamp("2999-12-31")
+    OPEN_END_DATE = pd.Timestamp.max
 
     df_master["Date application OEV fin"] = df_master[
         "Date application OEV fin"
@@ -375,5 +375,6 @@ def extract_filtered_excel_inputs(
         if product and ecdv:
             other_product_numbers.append(product)
             other_ecdvs.append(ecdv)
+
 
     return other_product_numbers, other_ecdvs
