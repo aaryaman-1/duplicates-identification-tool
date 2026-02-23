@@ -246,8 +246,19 @@ def row_to_combination_string(row):
         for v in val:
             v = str(v)
 
+            # -----------------------------------
+            # EXCLUSION VALUE → attach to previous
+            # -----------------------------------
             if v.startswith("!"):
-                parts.append(f"({col}{v[1:]})")
+
+                exclusion_text = f"({col}{v[1:]})"
+
+                # Attach to previous token if exists
+                if parts:
+                    parts[-1] = parts[-1] + exclusion_text
+                else:
+                    parts.append(exclusion_text)
+
             else:
                 parts.append(f"{col}{v}")
 
@@ -430,3 +441,4 @@ def extract_filtered_excel_inputs(
             other_ecdvs.append(ecdv)
 
     return other_product_numbers, other_ecdvs
+
