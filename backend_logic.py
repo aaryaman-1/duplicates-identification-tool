@@ -2,6 +2,36 @@ import pandas as pd
 import re
 from datetime import datetime
 
+
+# =========================================================
+# NEW HELPER (CM + FAMILY EXTRACTION)
+# =========================================================
+
+def extract_cm_family(ecdv: str):
+    """
+    Extract:
+    CM     → characters before first dot
+    Family → first 4 characters after first dot
+    """
+
+    if not isinstance(ecdv, str):
+        return None, None
+
+    match = re.match(r'^([^.]+)\.([A-Za-z0-9]{4})', ecdv.strip())
+
+    if not match:
+        return None, None
+
+    cm = match.group(1)
+    family = match.group(2)
+
+    return cm, family
+
+
+# =========================================================
+# ECDV INVERSE LOGIC
+# =========================================================
+
 def inverse_generate_ecdv(ecdv_string: str) -> pd.DataFrame:
 
     if not isinstance(ecdv_string, str):
@@ -115,6 +145,10 @@ def inverse_generate_ecdv(ecdv_string: str) -> pd.DataFrame:
     return pd.DataFrame(final_rows)
 
 
+# =========================================================
+# PREPROCESS FOR COMPARISON
+# =========================================================
+
 def preprocess_ecdv_for_comparison(ecdv1, ecdv2):
 
     df1 = inverse_generate_ecdv(ecdv1)
@@ -135,6 +169,10 @@ def preprocess_ecdv_for_comparison(ecdv1, ecdv2):
 
     return df1, df2
 
+
+# =========================================================
+# DUPLICATE CORE LOGIC
+# =========================================================
 
 def normalize_cell(val):
 
@@ -216,6 +254,10 @@ def row_to_combination_string(row):
     return ".".join(parts) if parts else "ALL"
 
 
+# =========================================================
+# DUPLICATE ENGINE (UPDATED WITH CM/FAMILY RULE)
+# =========================================================
+
 def find_duplicates_one_to_many(
         new_ecdv,
         other_ecdvs,
@@ -227,9 +269,23 @@ def find_duplicates_one_to_many(
 
     for idx, ecdv in enumerate(other_ecdvs):
 
+        # Skip same product
         if new_product_number and other_product_numbers:
             if new_product_number == other_product_numbers[idx]:
                 continue
+
+        # --------------------------------------------------
+        # NEW RULE: Compare CM and Family first
+        # --------------------------------------------------
+        new_cm, new_family = extract_cm_family(new_ecdv)
+        other_cm, other_family = extract_cm_family(ecdv)
+
+        if (new_cm != other_cm) or (new_family != other_family):
+            continue
+
+        # --------------------------------------------------
+        # Original logic (UNCHANGED)
+        # --------------------------------------------------
 
         df1, df2 = preprocess_ecdv_for_comparison(
             new_ecdv,
@@ -269,6 +325,11 @@ def find_duplicates_one_to_many(
     if not duplicates_global:
         print("\nNo duplicates are forming with the existing parts.")
 
+
+# =========================================================
+# EXCEL NORMALIZATION
+# =========================================================
+
 def normalize_excel_ecdv_format(ecdv: str):
 
     if not isinstance(ecdv, str):
@@ -279,7 +340,6 @@ def normalize_excel_ecdv_format(ecdv: str):
     if not ecdv:
         return ecdv
 
-    # Remove B0 / D / F after . / < ( )
     ecdv = re.sub(
         r'(?<=[\./<\(\)])(?:B0|D|F)(?=[A-Z0-9])',
         '',
@@ -288,15 +348,12 @@ def normalize_excel_ecdv_format(ecdv: str):
 
     return ecdv
 
-def load_excel_master_dataframe(file_path):
-    """
-    Load Excel only once per day.
-    Keeps original dataframe untouched.
 
-    Fixes:
-    - Mixed date formats
-    - Open-ended end dates (NaT → 2999-12-31)
-    """
+# =========================================================
+# EXCEL LOADER
+# =========================================================
+
+def load_excel_master_dataframe(file_path):
 
     df_master = pd.read_excel(
         file_path,
@@ -314,10 +371,6 @@ def load_excel_master_dataframe(file_path):
 
     df_master = df_master[required_columns].copy()
 
-    # ---------------------------
-    # Convert dates (robust parse)
-    # ---------------------------
-
     df_master["Date application OEV debut"] = pd.to_datetime(
         df_master["Date application OEV debut"],
         errors="coerce",
@@ -332,18 +385,18 @@ def load_excel_master_dataframe(file_path):
         format="mixed"
     )
 
-    # ---------------------------------------------------
-    # CRITICAL FIX:
-    # Treat NaT end-dates as open-ended validity
-    # ---------------------------------------------------
-
-    OPEN_END_DATE = pd.Timestamp.max
+    OPEN_END_DATE = pd.Timestamp("2999-12-31")
 
     df_master["Date application OEV fin"] = df_master[
         "Date application OEV fin"
     ].fillna(OPEN_END_DATE)
 
     return df_master
+
+
+# =========================================================
+# EXCEL FILTER ENGINE
+# =========================================================
 
 def extract_filtered_excel_inputs(
     df_master,
@@ -375,6 +428,5 @@ def extract_filtered_excel_inputs(
         if product and ecdv:
             other_product_numbers.append(product)
             other_ecdvs.append(ecdv)
-
 
     return other_product_numbers, other_ecdvs
